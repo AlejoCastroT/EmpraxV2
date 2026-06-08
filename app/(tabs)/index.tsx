@@ -1,98 +1,202 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+// app/(tabs)/index.tsx
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { Alert, SafeAreaView, StyleSheet, Animated, Text } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../../lib/supabase';
+import Toast from 'react-native-toast-message';
+import { useStudentData } from '../../hooks/services/useStudentData';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+// Tus nuevos super componentes
+import AdminDashboard from '../../components/admin/AdminDashboard'; // Importación de la vista de admin
+import AuthView from '../../components/auth/AuthView';
+import CatalogView from '../../components/catalog/CatalogView';
+import DashboardView from '../../components/dashboard/DashboardView';
+import BottomMenu from '../../components/navigation/BottomMenu';
+import ProfileView from '../../components/profile/ProfileView';
 
-export default function HomeScreen() {
+export default function AppScreen() {
+  const [session, setSession] = useState<any>(null);
+  const [role, setRole] = useState<'estudiante' | 'universidad' | null>(null);
+  const [activeTab, setActiveTab] = useState('Inicio');
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Estado y animaciones del Splash Screen
+  const [isAppReady, setIsAppReady] = useState(false);
+  const splashOpacity = useRef(new Animated.Value(1)).current;
+  const logoScale = useRef(new Animated.Value(0.5)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+
+  // Utilizar el Custom Hook para gestionar los datos
+  const {
+    perfil,
+    ofertasDisponibles,
+    misPracticas,
+    misEntrevistas,
+    misFavoritos,
+    loading: loadingData,
+    fetchData,
+    handlePostularse,
+    handleRetirarPostulacion,
+    handleToggleFavorito
+  } = useStudentData(session, refreshTrigger);
+
+  useEffect(() => {
+    // Animación inicial: Aparece el birrete
+    Animated.parallel([
+      Animated.timing(logoOpacity, { toValue: 1, duration: 800, useNativeDriver: true }),
+      Animated.spring(logoScale, { toValue: 1, friction: 4, tension: 8, useNativeDriver: true }),
+    ]).start(() => {
+      // Mantiene la pantalla por 1.5s y luego se desvanece
+      setTimeout(() => {
+        Animated.timing(splashOpacity, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => {
+          setIsAppReady(true);
+        });
+      }, 1500);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const checkUserRole = useCallback(async (userId: string) => {
+    // Si no encontramos un estudiante, verificamos si es empresa
+    const { data: empresa } = await supabase.from('empresas').select('id').eq('id', userId).single();
+    if (empresa) {
+      setRole('universidad');
+    } else {
+      setRole('estudiante');
+      // No necesitamos llamar a fetchData() aquí manualmente porque useEffect en el hook reacciona a session.user.id
+    }
+  }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) checkUserRole(session.user.id);
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) checkUserRole(session.user.id);
+      else {
+        setRole(null);
+      }
+    });
+
+    return () => authListener.subscription.unsubscribe();
+  }, [checkUserRole]);
+
+  const handleLogout = async () => {
+    Alert.alert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Salir', style: 'destructive', onPress: async () => {
+          await supabase.auth.signOut();
+          setSession(null);
+          setRole(null);
+          setActiveTab('Inicio');
+        }
+      }
+    ]);
+  };
+
+  const handleSignOut = async () => {
+    Alert.alert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Salir', style: 'destructive', onPress: async () => { 
+        await supabase.auth.signOut(); 
+        setRole(null);
+      }}
+    ]);
+  };
+
+  // 1. Si la animación no ha terminado, mostramos la pantalla de carga (Splash)
+  if (!isAppReady) {
+    return (
+      <Animated.View style={[styles.splashContainer, { opacity: splashOpacity }]}>
+        <Animated.View style={{ opacity: logoOpacity, transform: [{ scale: logoScale }], alignItems: 'center' }}>
+          <Ionicons name="school" size={120} color="#FFF" />
+          <Text style={styles.splashTitle}>Bienvenido a Emprax</Text>
+          <Text style={styles.splashSubtitle}>Tu futuro profesional comienza aquí</Text>
+        </Animated.View>
+      </Animated.View>
+    );
+  }
+
+  // 2. Transición al AuthView (Login) si no hay sesión
+  if (!session || !session.user) {
+    return <AuthView />;
+  }
+
+  // Vista para Universidad/Administrador
+  if (role === 'universidad') {
+    return <AdminDashboard session={session} perfil={perfil} onLogout={handleSignOut} refreshTrigger={refreshTrigger} />;
+  }
+
+  // Vista para Estudiante (Por defecto)
+  const primerNombre = perfil?.nombre_completo?.split(' ')[0] || 'Estudiante';
+  const inicial = primerNombre.charAt(0).toUpperCase();
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
+    <SafeAreaView style={styles.dashboardContainer}>
+      {activeTab === 'Inicio' && (
+        <DashboardView 
+          primerNombre={primerNombre} 
+          inicial={inicial} 
+          misPracticas={misPracticas} 
+          misEntrevistas={misEntrevistas} 
+          setActiveTab={setActiveTab} 
+          handleRetirarPostulacion={handleRetirarPostulacion}
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+      )}
+      
+      {activeTab === 'Ofertas' && (
+        <CatalogView 
+          ofertasDisponibles={ofertasDisponibles} 
+          misPracticas={misPracticas} 
+          misFavoritos={misFavoritos}
+          handlePostularse={handlePostularse} 
+          handleToggleFavorito={handleToggleFavorito}
+          isFavoritesView={false}
+        />
+      )}
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      {activeTab === 'Favoritos' && (
+        <CatalogView 
+          ofertasDisponibles={ofertasDisponibles} 
+          misPracticas={misPracticas} 
+          misFavoritos={misFavoritos}
+          handlePostularse={handlePostularse} 
+          handleToggleFavorito={handleToggleFavorito}
+          isFavoritesView={true}
+        />
+      )}
+
+      {activeTab === 'Perfil' && (
+        <ProfileView session={session} perfil={perfil} inicial={inicial} setActiveTab={setActiveTab} onProfileUpdated={fetchData} />
+      )}
+
+      <BottomMenu activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleSignOut} />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  dashboardContainer: { flex: 1, backgroundColor: '#FFFFFF' },
+  splashContainer: {
+    flex: 1,
+    backgroundColor: '#0A66C2', // Azul profesional
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  splashTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#FFF',
+    marginTop: 20,
+    textAlign: 'center',
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  splashSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 10,
+    textAlign: 'center',
+  }
 });
