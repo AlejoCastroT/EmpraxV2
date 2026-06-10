@@ -106,7 +106,7 @@ export default function RegisterView({ onSwitchMode }: RegisterViewProps) {
           style={[styles.roleButton, role === 'universidad' && styles.roleButtonActive]} 
           onPress={() => setRole('universidad')}
         >
-          <Text style={[styles.roleText, role === 'universidad' && styles.roleTextActive]}>Universidad</Text>
+          <Text style={[styles.roleText, role === 'universidad' && styles.roleTextActive]}>Empresa</Text>
         </TouchableOpacity>
       </View>
       

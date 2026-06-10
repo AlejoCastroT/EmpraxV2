@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Alert, SafeAreaView, StyleSheet, Animated, Text } from 'react-native';
+import { Alert, SafeAreaView, StyleSheet, Animated, Text, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import Toast from 'react-native-toast-message';
@@ -85,6 +85,17 @@ export default function AppScreen() {
   }, [checkUserRole]);
 
   const handleLogout = async () => {
+    if (Platform.OS === 'web') {
+      const confirm = window.confirm('¿Estás seguro de que quieres salir?');
+      if (confirm) {
+        await supabase.auth.signOut();
+        setSession(null);
+        setRole(null);
+        setActiveTab('Inicio');
+      }
+      return;
+    }
+
     Alert.alert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Salir', style: 'destructive', onPress: async () => {
@@ -98,6 +109,15 @@ export default function AppScreen() {
   };
 
   const handleSignOut = async () => {
+    if (Platform.OS === 'web') {
+      const confirm = window.confirm('¿Estás seguro de que quieres salir?');
+      if (confirm) {
+        await supabase.auth.signOut();
+        setRole(null);
+      }
+      return;
+    }
+
     Alert.alert('Cerrar Sesión', '¿Estás seguro de que quieres salir?', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Salir', style: 'destructive', onPress: async () => { 
